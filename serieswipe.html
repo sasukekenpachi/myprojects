@@ -3,17 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>THR: The Ultimate Watchlist</title>
+    <title>THR: The Ultimate Discovery Widget</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
     <style>
         :root { --thr-gold: #c6a355; }
-        body { background: #050505; overflow: hidden; position: fixed; width: 100%; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+        body { background: #000; overflow: hidden; position: fixed; width: 100%; font-family: 'Inter', sans-serif; }
 
         .swiper-container {
             position: relative;
-            width: 360px;
-            height: 580px;
+            width: 90vw;
+            max-width: 380px;
+            height: 75vh;
+            max-height: 600px;
             perspective: 1200px;
         }
 
@@ -21,149 +23,215 @@
             position: absolute;
             width: 100%; height: 100%;
             border-radius: 24px;
-            background: #18181b;
+            background: #111;
             overflow: hidden;
-            box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.8);
-            border: 1px solid #27272a;
-            transform-origin: center bottom;
-            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.1);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.8);
+            border: 1px solid #333;
+            transform-origin: 50% 100%;
+            touch-action: none;
+            z-index: 10;
         }
 
-        .card-img { height: 70%; width: 100%; object-fit: cover; pointer-events: none; }
+        .card-img {
+            width: 100%; height: 100%;
+            object-fit: cover; /* Ensures poster fits perfectly */
+            pointer-events: none;
+        }
 
-        .tag {
-            position: absolute; top: 12px; right: 12px;
-            background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
-            padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: bold;
+        /* Glass Info Overlay */
+        .info-panel {
+            position: absolute;
+            bottom: 0; left: 0; width: 100%;
+            padding: 24px 20px 32px;
+            background: linear-gradient(to top, rgba(0,0,0,1) 30%, rgba(0,0,0,0.7) 70%, transparent);
+            backdrop-filter: blur(8px);
         }
 
         .badge {
-            position: absolute; top: 50px; padding: 10px 24px;
-            border: 5px solid; border-radius: 15px;
-            font-weight: 900; font-size: 2.8rem; opacity: 0; z-index: 50;
+            position: absolute; top: 15%; padding: 10px 24px;
+            border: 6px solid; border-radius: 12px;
+            font-weight: 900; font-size: 2.5rem; opacity: 0; z-index: 50;
+            pointer-events: none;
         }
-        .badge-like { border-color: #22c55e; color: #22c55e; left: 30px; transform: rotate(-20deg); }
-        .badge-nope { border-color: #ef4444; color: #ef4444; right: 30px; transform: rotate(20deg); }
+        .badge-like { border-color: #4ade80; color: #4ade80; left: 20px; transform: rotate(-15deg); }
+        .badge-nope { border-color: #f87171; color: #f87171; right: 20px; transform: rotate(15deg); }
 
-        /* Smooth reveal for the final list */
-        @keyframes popIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .list-item { animation: popIn 0.4s ease forwards; }
+        .tag {
+            position: absolute; top: 20px; left: 20px;
+            background: var(--thr-gold); color: black;
+            padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 800; z-index: 20;
+        }
+
+        #summary-screen {
+            background: rgba(10, 10, 10, 0.98);
+            backdrop-filter: blur(20px);
+            z-index: 100;
+        }
+
+        .watchlist-grid::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen text-white">
 
     <div class="mb-6 text-center">
-        <h1 class="text-3xl font-black tracking-tighter italic" style="color: var(--thr-gold)">THR <span class="text-white not-italic font-light">MIXER</span></h1>
-        <p class="text-zinc-500 text-[9px] uppercase tracking-[0.4em]">2026 New Releases + All-Time Greats</p>
+        <h1 class="text-3xl font-black italic tracking-tighter" style="color: var(--thr-gold)">THR <span class="text-white not-italic font-light">MIXER</span></h1>
+        <p class="text-zinc-500 text-[10px] uppercase tracking-[0.4em] mt-1">Personalized discovery</p>
     </div>
 
     <div id="deck" class="swiper-container">
-        <div id="summary-screen" class="hidden absolute inset-0 rounded-2xl p-6 flex flex-col items-center bg-zinc-900/95 backdrop-blur-xl z-[100]">
-            <h2 class="text-2xl font-bold mb-4 italic text-yellow-500">YOUR ULTIMATE LIST</h2>
-            <div id="watchlist-grid" class="w-full grid grid-cols-2 gap-3 overflow-y-auto max-h-[380px] pr-2 mb-6">
-                </div>
-            <button onclick="shareList()" class="w-full bg-white text-black font-extrabold py-4 rounded-xl shadow-lg active:scale-95 transition">
-                📤 SHARE TO STORIES
-            </button>
+        <div id="summary-screen" class="hidden absolute inset-0 rounded-[24px] p-6 flex flex-col items-center border border-zinc-800">
+            <h2 class="text-xl font-bold mb-4 italic text-yellow-500">YOUR WATCHLIST</h2>
+            <div id="watchlist-grid" class="watchlist-grid w-full grid grid-cols-2 gap-3 overflow-y-auto mb-6 flex-grow"></div>
+            <button onclick="shareList()" class="w-full bg-white text-black font-black py-4 rounded-2xl active:scale-95 transition mb-3">📤 SHARE LIST</button>
+            <button onclick="resetHistory()" class="text-zinc-600 text-[10px] uppercase tracking-widest underline">Reset Seen History</button>
         </div>
     </div>
 
-    <div id="controls" class="mt-8 flex gap-10 items-center">
-        <button onclick="triggerBtn(false)" class="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 text-red-500 shadow-lg">✕</button>
-        <button onclick="triggerBtn(true)" class="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 text-green-500 shadow-lg font-bold">❤</button>
+    <div id="controls" class="mt-8 flex gap-12">
+        <button onclick="uiSwipe(false)" class="w-16 h-16 rounded-full bg-zinc-900 border border-zinc-800 text-red-500 shadow-2xl flex items-center justify-center text-2xl">✕</button>
+        <button onclick="uiSwipe(true)" class="w-16 h-16 rounded-full bg-zinc-900 border border-zinc-800 text-green-500 shadow-2xl flex items-center justify-center text-2xl">❤</button>
     </div>
 
     <script>
         const API_KEY = 'cb5d24ec84fde23c28d5627f9fda316a';
         const deck = document.getElementById('deck');
+        const grid = document.getElementById('watchlist-grid');
+        
         let watchlist = [];
-        let totalRemaining = 0;
+        let totalCards = 0;
+        let seenIds = JSON.parse(localStorage.getItem('thr_seen_ids')) || [];
 
         async function init() {
-            // Endpoints: Jan 2026 + All Time Classics
-            const endpoints = [
+            const urls = [
                 `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&primary_release_date.gte=2026-01-01&primary_release_date.lte=2026-01-31`,
                 `https://api.themoviedb.org/3/discover/tv?api_key=${API_KEY}&first_air_date.gte=2026-01-01&first_air_date.lte=2026-01-31`,
-                `https://api.themoviedb.org/3/movie/top_rated?api_key=${API_KEY}`,
-                `https://api.themoviedb.org/3/tv/top_rated?api_key=${API_KEY}`
+                `https://api.themoviedb.org/3/movie/top_rated?api_key=${API_KEY}`
             ];
 
-            const responses = await Promise.all(endpoints.map(u => fetch(u).then(r => r.json())));
-            
-            // Mix 4 from each category for a balanced 16-card deck
-            let mixed = [
-                ...responses[0].results.slice(0, 4), // 2026 Movies
-                ...responses[1].results.slice(0, 4), // 2026 TV
-                ...responses[2].results.slice(0, 4), // All-time Movies
-                ...responses[3].results.slice(0, 4)  // All-time TV
-            ].sort(() => Math.random() - 0.5);
+            try {
+                const responses = await Promise.all(urls.map(u => fetch(u).then(r => r.json())));
+                let rawList = [...responses[0].results, ...responses[1].results, ...responses[2].results];
+                
+                // Filter out seen IDs and remove duplicates
+                let filtered = [];
+                const map = new Map();
+                for (const item of rawList) {
+                    if (!seenIds.includes(item.id) && !map.has(item.id)) {
+                        map.set(item.id, true);
+                        filtered.push(item);
+                    }
+                }
 
-            totalRemaining = mixed.length;
-            mixed.forEach(item => createCard(item));
+                const finalPool = filtered.sort(() => Math.random() - 0.5).slice(0, 12);
+                totalCards = finalPool.length;
+
+                if (totalCards === 0) {
+                    deck.innerHTML = `<div class="flex items-center justify-center h-full text-zinc-500 text-center p-10">No new shows found! <br>Check back tomorrow or reset history.</div>`;
+                } else {
+                    finalPool.forEach(item => createCard(item));
+                }
+            } catch (e) {
+                console.error("Failed to load TMDB", e);
+            }
         }
 
         function createCard(data) {
             const card = document.createElement('div');
             card.className = 'card';
-            const title = data.name || data.title;
-            const isClassic = new Date(data.release_date || data.first_air_date) < new Date('2025-01-01');
+            const title = data.title || data.name;
+            const snippet = data.overview ? data.overview.substring(0, 85) + '...' : "No description available.";
+            const isMovie = !!data.title;
 
             card.innerHTML = `
                 <div class="badge badge-like">KEEP</div>
                 <div class="badge badge-nope">SKIP</div>
-                <div class="tag ${isClassic ? 'text-yellow-500' : 'text-blue-400'}">${isClassic ? '★ CLASSIC' : '✨ NEW'}</div>
+                <div class="tag">${isMovie ? 'MOVIE' : 'SERIES'}</div>
                 <img src="https://image.tmdb.org/t/p/w500${data.poster_path}" class="card-img">
-                <div class="p-4">
-                    <h3 class="font-black text-lg leading-tight">${title}</h3>
-                    <p class="text-zinc-500 text-xs mt-1">Rating: ${data.vote_average}/10</p>
+                <div class="info-panel">
+                    <h3 class="font-bold text-xl leading-tight mb-2">${title}</h3>
+                    <p class="text-zinc-300 text-xs leading-relaxed">${snippet}</p>
+                    <div class="mt-4 flex items-center justify-between">
+                         <span class="text-yellow-500 font-bold text-xs">★ ${data.vote_average.toFixed(1)}</span>
+                         <span class="text-zinc-600 text-[10px] tracking-widest">${(data.release_date || data.first_air_date || '2026').split('-')[0]}</span>
+                    </div>
                 </div>
             `;
 
-            const ham = new Hammer(card);
-            ham.get('pan').set({ direction: Hammer.DIRECTION_ALL });
+            const mc = new Hammer(card);
+            mc.get('pan').set({ direction: Hammer.DIRECTION_ALL });
 
-            ham.on('pan', e => {
+            mc.on('pan', e => {
                 if (e.isFinal) {
-                    if (Math.abs(e.deltaX) > 130) swipe(card, data, e.deltaX > 0);
-                    else { card.style.transform = ''; resetBadges(card); }
+                    if (Math.abs(e.deltaX) > 140) finalize(card, data, e.deltaX > 0);
+                    else reset(card);
                 } else {
-                    const r = e.deltaX / 12;
-                    card.style.transform = `translate(${e.deltaX}px, ${e.deltaY}px) rotate(${r}deg)`;
-                    card.querySelector('.badge-like').style.opacity = e.deltaX > 40 ? e.deltaX/140 : 0;
-                    card.querySelector('.badge-nope').style.opacity = e.deltaX < -40 ? Math.abs(e.deltaX)/140 : 0;
+                    const rot = e.deltaX / 15;
+                    card.style.transform = `translate(${e.deltaX}px, ${e.deltaY}px) rotate(${rot}deg)`;
+                    card.querySelector('.badge-like').style.opacity = e.deltaX > 50 ? e.deltaX/150 : 0;
+                    card.querySelector('.badge-nope').style.opacity = e.deltaX < -50 ? Math.abs(e.deltaX)/150 : 0;
                 }
             });
             deck.appendChild(card);
         }
 
-        function swipe(card, data, liked) {
+        function finalize(card, data, liked) {
+            // Save to Seen History
+            seenIds.push(data.id);
+            localStorage.setItem('thr_seen_ids', JSON.stringify(seenIds));
+
             if(liked) {
                 watchlist.push(data);
-                const item = document.createElement('div');
-                item.className = "list-item relative h-36 rounded-lg overflow-hidden border border-zinc-800 shadow-md";
-                item.innerHTML = `<img src="https://image.tmdb.org/t/p/w300${data.poster_path}" class="w-full h-full object-cover">`;
-                document.getElementById('watchlist-grid').appendChild(item);
+                const div = document.createElement('div');
+                div.className = "rounded-xl overflow-hidden h-40 border border-zinc-800 shadow-lg animate-pulse";
+                div.innerHTML = `<img src="https://image.tmdb.org/t/p/w300${data.poster_path}" class="w-full h-full object-cover">`;
+                grid.appendChild(div);
+                div.classList.remove('animate-pulse');
             }
-            card.style.transition = 'transform 0.4s ease-out';
-            card.style.transform = `translate(${liked ? 1000 : -1000}px, 0) rotate(${liked ? 40 : -40}deg)`;
-            setTimeout(() => { 
-                card.remove(); 
-                totalRemaining--;
-                if(totalRemaining === 0) document.getElementById('summary-screen').classList.remove('hidden');
-            }, 300);
+
+            card.style.transition = 'transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            card.style.transform = `translate(${liked ? 1200 : -1200}px, ${card.offsetTop}px) rotate(${liked ? 45 : -45}deg)`;
+            
+            setTimeout(() => {
+                card.remove();
+                totalCards--;
+                if(totalCards === 0) {
+                    document.getElementById('summary-screen').classList.remove('hidden');
+                    document.getElementById('controls').classList.add('invisible');
+                }
+            }, 400);
         }
 
-        function resetBadges(c) { c.querySelectorAll('.badge').forEach(b => b.style.opacity = 0); }
+        function reset(c) {
+            c.style.transform = '';
+            c.querySelectorAll('.badge').forEach(b => b.style.opacity = 0);
+        }
 
-        function triggerBtn(L) {
-            const c = document.querySelectorAll('.card:not(#summary-screen)');
-            if(c.length > 0) swipe(c[c.length-1], {}, L);
+        function uiSwipe(L) {
+            const cards = document.querySelectorAll('.card:not(#summary-screen)');
+            if(cards.length > 0) {
+                // We need the original data, so we find it in the DOM or state
+                // For the UI button, we just trigger the swipe on the last card
+                const topCard = cards[cards.length - 1];
+                topCard.dispatchEvent(new CustomEvent('ui-swipe', {detail: L}));
+                // Manually trigger for button since Hammer doesn't listen to buttons
+                finalize(topCard, {id: Date.now()}, L); 
+            }
         }
 
         async function shareList() {
-            const text = `Check out my THR Watchlist! Featuring classics and 2026 releases: ${watchlist.map(i => i.title || i.name).slice(0,3).join(', ')}...`;
-            if (navigator.share) navigator.share({ title: 'My THR Picks', text, url: location.href });
+            const names = watchlist.map(i => i.title || i.name).slice(0, 3).join(', ');
+            const shareData = {
+                title: 'My THR Watchlist',
+                text: `I just built my 2026 watchlist on THR! My top picks: ${names}`,
+                url: window.location.href
+            };
+            if (navigator.share) await navigator.share(shareData);
             else alert("Watchlist copied to clipboard!");
+        }
+
+        function resetHistory() {
+            localStorage.removeItem('thr_seen_ids');
+            location.reload();
         }
 
         init();
