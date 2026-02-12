@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixel Buster: Movie Edition</title>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --text: #f1f5f9; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; margin: 0; padding: 10px; min-height: 100vh; overflow-x: hidden; }
+
+        .game-card { background: var(--card); padding: 1.5rem; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); width: 100%; max-width: 400px; text-align: center; position: relative; }
+        
+        .stats-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-weight: bold; color: var(--accent); font-variant-numeric: tabular-nums; }
+        
+        .timer-container { width: 100%; height: 6px; background: #334155; border-radius: 3px; margin-bottom: 15px; overflow: hidden; }
+        #timer-bar { width: 100%; height: 100%; background: var(--accent); transition: width 0.1s linear; }
+
+        .pixel-wrapper { width: 100%; aspect-ratio: 2/3; margin: 0 auto 15px; overflow: hidden; border-radius: 16px; background: #000; border: 3px solid #334155; position: relative; }
+        #pixel-canvas { width: 100%; height: 100%; image-rendering: pixelated; }
+
+        .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        button { background: #334155; color: white; border: none; padding: 16px 10px; border-radius: 12px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: background 0.2s, transform 0.1s; }
+        button:active { transform: scale(0.96); }
+        button:disabled { opacity: 0.6; cursor: default; }
+        button.correct { background: #22c55e !important; }
+        button.wrong { background: #ef4444 !important; }
+        
+        #hint-btn { background: transparent; border: 1px dashed var(--accent); color: var(--accent); width: 100%; margin-bottom: 10px; padding: 10px; font-size: 0.8rem; }
+        #hint-text { font-style: italic; font-size: 0.8rem; color: #94a3b8; min-height: 2.5rem; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; }
+
+        #final-screen { display: none; }
+        
+        /* Smooth Score Animation */
+        .score-pop { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); font-size: 2.5rem; font-weight: 800; pointer-events: none; opacity: 0; transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 10; }
+        .score-pop.show { opacity: 1; top: 10%; }
+    </style>
+</head>
+<body>
+
+<div class="game-card" id="game-screen">
+    <div class="stats-row">
+        <span>Round <span id="round-num">1</span>/10</span>
+        <span id="score-display">Score: 0</span>
+    </div>
+
+    <div class="timer-container">
+        <div id="timer-bar"></div>
+    </div>
+    
+    <div class="pixel-wrapper">
+        <canvas id="pixel-canvas" width="300" height="450"></canvas>
+    </div>
+
+    <div id="hint-area">
+        <button id="hint-btn">💡 Need Clues? (-5 pts potential)</button>
+        <div id="hint-text"></div>
+    </div>
+
+    <div id="options" class="options-grid"></div>
+    <p id="msg" style="height: 1.2rem; font-weight: bold; margin: 15px 0; color: var(--accent);"></p>
+    <div id="score-anim" class="score-pop"></div>
+</div>
+
+<div class="game-card" id="final-screen">
+    <h1>🎬 Final Score</h1>
+    <p style="font-size: 3.5rem; color: var(--accent); margin: 10px 0;" id="final-score">0</p>
+    <p id="rank-msg"></p>
+    <button onclick="location.reload()" style="width:100%; background: var(--accent); color: #0f172a; padding: 20px; font-size: 1.2rem; border-radius: 12px; border: none; font-weight: bold;">Play Again</button>
+</div>
+
+<script>
+const API_KEY = 'cb5d24ec84fde23c28d5627f9fda316a';
+const canvas = document.getElementById('pixel-canvas');
+const ctx = canvas.getContext('2d');
+
+let score = 0;
+let round = 1;
+let timeLeft = 10;
+let currentMovie = null;
+let gameActive = false;
+let hintUsed = false;
+let viewedIds = new Set();
+let timerInterval, pixelInterval;
+
+const GENRES = {28:"Action",12:"Adventure",16:"Animation",35:"Comedy",80:"Crime",18:"Drama",10751:"Family",14:"Fantasy",27:"Horror",9648:"Mystery",10749:"Romance",878:"Sci-Fi",53:"Thriller"};
+
+function clearAllTimers() {
+    clearInterval(timerInterval);
+    clearInterval(pixelInterval);
+}
+
+async function getDetails(movieId) {
+    try {
+        const res = await fetch(`https://api.themoviedb.org/3/movie/${movieId}/credits?api_key=${API_KEY}`);
+        const data = await res.json();
+        return data.cast[0]?.name || "a mystery star";
+    } catch(e) { return "a mystery star"; }
+}
+
+async function startRound() {
+    if (round > 10) { showFinalScreen(); return; }
+
+    clearAllTimers();
+    document.getElementById('msg').innerText = "Loading Movie...";
+    document.getElementById('options').innerHTML = '';
+    
+    // Fetch unique movie
+    const res = await fetch(`https://api.themoviedb.org/3/movie/popular?api_key=${API_KEY}&page=${Math.floor(Math.random() * 10) + 1}`);
+    const data = await res.json();
+    const available = data.results.filter(m => !viewedIds.has(m.id));
+    
+    currentMovie = available[0] || data.results[0];
+    viewedIds.add(currentMovie.id);
+    
+    const choices = data.results.filter(m => m.id !== currentMovie.id).slice(0, 3);
+    choices.push(currentMovie);
+    choices.sort(() => Math.random() - 0.5);
+
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.src = `https://image.tmdb.org/t/p/w500${currentMovie.poster_path}`;
+    
+    img.onload = () => {
+        gameActive = true;
+        hintUsed = false;
+        timeLeft = 10;
+        document.getElementById('round-num').innerText = round;
+        document.getElementById('msg').innerText = "";
+        document.getElementById('hint-text').innerText = "";
+        document.getElementById('hint-btn').style.display = "block";
+        document.getElementById('timer-bar').style.width = "100%";
+        
+        startGameplay(img, choices);
+    };
+}
+
+function startGameplay(img, choices) {
+    // 1. Start Pixelation
+    let pSize = 18;
+    pixelInterval = setInterval(() => {
+        if (pSize > 1) {
+            pSize -= 0.5;
+            draw(img, pSize);
+        }
+    }, 400);
+
+    // 2. Start Timer
+    timerInterval = setInterval(() => {
+        timeLeft -= 0.1;
+        document.getElementById('timer-bar').style.width = (timeLeft * 10) + "%";
+        if (timeLeft <= 0) handleTimeout(img);
+    }, 100);
+
+    renderButtons(choices, img);
+}
+
+function handleTimeout(img) {
+    endRound(false, true, null, img);
+}
+
+function renderButtons(choices, img) {
+    const container = document.getElementById('options');
+    container.innerHTML = '';
+    choices.forEach(m => {
+        const btn = document.createElement('button');
+        btn.innerText = m.title;
+        btn.onclick = () => {
+            if (!gameActive) return;
+            endRound(m.id === currentMovie.id, false, btn, img);
+        };
+        container.appendChild(btn);
+    });
+
+    document.getElementById('hint-btn').onclick = async () => {
+        if (!gameActive) return;
+        hintUsed = true;
+        // Visual penalty feedback
+        popScore("-5 Potential", "#facc15");
+        
+        const actor = await getDetails(currentMovie.id);
+        const genre = GENRES[currentMovie.genre_ids[0]] || "Movie";
+        document.getElementById('hint-text').innerHTML = `📅 ${currentMovie.release_date.split('-')[0]} | 🎭 ${genre}<br>👤 Starring ${actor}`;
+        document.getElementById('hint-btn').style.display = "none";
+    };
+}
+
+function endRound(isCorrect, isTimeout, clickedBtn, img) {
+    gameActive = false;
+    clearAllTimers();
+    
+    // Full Reveal
+    draw(img, 1);
+
+    document.querySelectorAll('.options-grid button').forEach(b => b.disabled = true);
+    document.getElementById('hint-btn').style.display = "none";
+
+    if (isTimeout) {
+        updateScore(-5);
+        document.getElementById('msg').innerText = "Time's Up! It was " + currentMovie.title;
+    } else if (isCorrect) {
+        const pts = hintUsed ? 10 : 15;
+        updateScore(pts);
+        clickedBtn.classList.add('correct');
+        document.getElementById('msg').innerText = "Correct! 🎉";
+    } else {
+        updateScore(-8);
+        clickedBtn.classList.add('wrong');
+        document.getElementById('msg').innerText = "Wrong! It was " + currentMovie.title;
+    }
+
+    setTimeout(() => {
+        round++;
+        startRound();
+    }, 3000);
+}
+
+function updateScore(n) {
+    score += n;
+    document.getElementById('score-display').innerText = `Score: ${score}`;
+    popScore(n > 0 ? `+${n}` : n, n > 0 ? "#22c55e" : "#ef4444");
+}
+
+function popScore(text, color) {
+    const anim = document.getElementById('score-anim');
+    anim.innerText = text;
+    anim.style.color = color;
+    anim.classList.remove('show');
+    void anim.offsetWidth; // Trigger reflow
+    anim.classList.add('show');
+    setTimeout(() => anim.classList.remove('show'), 800);
+}
+
+function draw(img, size) {
+    const w = Math.max(1, canvas.width / size);
+    const h = Math.max(1, canvas.height / size);
+    ctx.drawImage(img, 0, 0, w, h);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(canvas, 0, 0, w, h, 0, 0, canvas.width, canvas.height);
+}
+
+function showFinalScreen() {
+    document.getElementById('game-screen').style.display = 'none';
+    document.getElementById('final-screen').style.display = 'block';
+    document.getElementById('final-score').innerText = score;
+    
+    let rank = "Movie Buff! 🍿";
+    if (score > 120) rank = "Cinema Legend! 🏆";
+    else if (score < 50) rank = "Keep Watching! 🎬";
+    document.getElementById('rank-msg').innerText = rank;
+}
+
+startRound();
+</script>
+</body>
+</html>

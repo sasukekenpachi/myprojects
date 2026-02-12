@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ChronoLogic: Cinema Legends</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <style>
+        :root { --bg: #09090b; --accent: #f59e0b; --card: #18181b; --text: #fafafa; --success: #22c55e; --error: #ef4444; }
+        
+        /* Disable long-press context menus and pull-to-refresh for better game feel */
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background: var(--bg); color: var(--text);
+            font-family: 'Inter', -apple-system, sans-serif;
+            overflow: hidden;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+        }
+
+        body { display: flex; flex-direction: column; align-items: center; padding: 10px; box-sizing: border-box; }
+
+        /* Mode Selection Overlay */
+        #mode-selection { 
+            position: fixed; inset: 0; background: var(--bg); z-index: 200; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px;
+        }
+        .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; width: 100%; max-width: 400px; }
+        .mode-btn { padding: 20px; font-size: 1.1rem; font-weight: bold; border-radius: 12px; border: 2px solid var(--accent); background: var(--card); color: white; cursor: pointer; }
+
+        /* Game Header */
+        #game-ui { display: none; width: 100%; max-width: 500px; height: 100%; display: flex; flex-direction: column; }
+        .game-header { text-align: center; padding: 10px 0; border-bottom: 1px solid #27272a; }
+        #timer { font-size: 2.5rem; font-weight: 900; margin: 0; color: #fff; }
+        #level-indicator { color: var(--accent); font-weight: 700; font-size: 0.8rem; text-transform: uppercase; }
+
+        /* Movie List - Optimized for Touch */
+        #movie-list { 
+            flex-grow: 1; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 10px; 
+            padding: 15px; list-style: none; margin: 0;
+            /* Allow scrolling through the list normally */
+            touch-action: pan-y; 
+        }
+
+        .movie-card { 
+            display: flex; align-items: center; background: var(--card); 
+            border-radius: 12px; border: 2px solid #27272a; height: 85px; 
+            /* This is the key: Don't let the browser handle touches on the card itself */
+            touch-action: none; 
+            position: relative;
+        }
+
+        .movie-card img { width: 60px; height: 100%; object-fit: cover; border-radius: 10px 0 0 10px; pointer-events: none; }
+        .info-area { flex-grow: 1; padding: 0 15px; display: flex; justify-content: space-between; align-items: center; }
+        .movie-title { font-size: 0.95rem; font-weight: 600; text-align: left; max-width: 70%; line-height: 1.2; }
+        .rank-number { font-size: 1.2rem; font-weight: 900; color: var(--accent); opacity: 0.4; }
+
+        /* Draggable state */
+        .sortable-chosen { background: #27272a !important; border-color: var(--accent) !important; opacity: 0.9; }
+        .sortable-ghost { opacity: 0.2; }
+
+        .correct { border-color: var(--success) !important; }
+        .wrong { border-color: var(--error) !important; }
+
+        /* Fixed Footer */
+        .footer { padding: 20px; text-align: center; background: var(--bg); border-top: 1px solid #27272a; }
+        #submit-btn { 
+            background: var(--accent); color: #000; border: none; padding: 18px; 
+            width: 100%; max-width: 400px; font-size: 1.2rem; border-radius: 50px; 
+            font-weight: 800; cursor: pointer;
+        }
+        #feedback { color: var(--accent); margin-top: 10px; height: 20px; font-weight: 600; }
+    </style>
+</head>
+<body>
+
+    <div id="mode-selection">
+        <h1>ChronoLogic</h1>
+        <p>Pick an industry to start</p>
+        <div class="mode-grid">
+            <button class="mode-btn" onclick="start('ml', 'Malayalam')">Malayalam</button>
+            <button class="mode-btn" onclick="start('ta', 'Tamil')">Tamil</button>
+            <button class="mode-btn" onclick="start('hi', 'Hindi')">Hindi</button>
+            <button class="mode-btn" onclick="start('en', 'English')">English</button>
+        </div>
+    </div>
+
+    <div id="game-ui">
+        <div class="game-header">
+            <div id="level-indicator">LEVEL 1</div>
+            <div id="timer">00:00</div>
+        </div>
+        
+        <ul id="movie-list"></ul>
+
+        <div class="footer">
+            <div id="feedback"></div>
+            <button id="submit-btn" onclick="checkOrder()">SUBMIT ORDER</button>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = 'cb5d24ec84fde23c28d5627f9fda316a';
+        let game = { lang: '', label: '', level: 1, seconds: 0, isRunning: false, seen: new Set(), tries: 3 };
+
+        function start(lang, label) {
+            game.lang = lang; game.label = label;
+            document.getElementById('mode-selection').style.display = 'none';
+            document.getElementById('game-ui').style.display = 'flex';
+            loadLevel();
+        }
+
+        async function loadLevel() {
+            const listEl = document.getElementById('movie-list');
+            listEl.innerHTML = "<p style='text-align:center; padding-top:50px;'>Fetching Movies...</p>";
+            game.tries = 3;
+            let movies = [];
+
+            try {
+                const spreads = [20, 10, 5, 2, 0];
+                let baseYear = 1980 + Math.floor(Math.random() * 25);
+                
+                while (movies.length < 6) {
+                    const year = baseYear + (movies.length * (spreads[game.level-1] || 0));
+                    const res = await fetch(`https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&with_original_language=${game.lang}&primary_release_year=${year}&sort_by=popularity.desc`);
+                    const data = await res.json();
+                    const pick = data.results.find(m => !game.seen.has(m.id) && m.poster_path && m.release_date);
+                    if(pick) { game.seen.add(pick.id); movies.push(pick); }
+                    if(year > 2026) break;
+                }
+                render(movies);
+                if(!game.isRunning) startTimer();
+            } catch (e) { listEl.innerHTML = "Error loading. Check your connection."; }
+        }
+
+        function render(movies) {
+            const listEl = document.getElementById('movie-list');
+            listEl.innerHTML = '';
+            movies.sort(() => 0.5 - Math.random()).forEach((m, i) => {
+                const li = document.createElement('li');
+                li.className = 'movie-card'; 
+                li.dataset.date = m.release_date;
+                li.innerHTML = `
+                    <img src="https://image.tmdb.org/t/p/w200${m.poster_path}">
+                    <div class="info-area">
+                        <div class="movie-title">${m.title}</div>
+                        <div class="rank-number">${i+1}</div>
+                    </div>`;
+                listEl.appendChild(li);
+            });
+
+            // MOBILE-FIXED SORTABLE CONFIG
+            Sortable.create(listEl, { 
+                animation: 250, 
+                delay: 150, // USER MUST HOLD FOR 0.15s TO DRAG (Crucial for mobile)
+                delayOnTouchOnly: true,
+                touchStartThreshold: 5, // Prevents drag if finger just wiggles slightly
+                onStart: function() {
+                    document.querySelectorAll('.movie-card').forEach(c => c.classList.remove('correct', 'wrong'));
+                    document.getElementById('feedback').innerText = "";
+                },
+                onEnd: function() {
+                    document.querySelectorAll('.rank-number').forEach((n, i) => n.innerText = i + 1);
+                }
+            });
+            document.getElementById('level-indicator').innerText = `${game.label} - LEVEL ${game.level}`;
+        }
+
+        function checkOrder() {
+            const cards = Array.from(document.getElementById('movie-list').children);
+            const sorted = [...cards].map(c => c.dataset.date).sort();
+            let correct = 0;
+            cards.forEach((c, i) => {
+                if (c.dataset.date === sorted[i]) { c.classList.add('correct'); correct++; }
+                else { c.classList.add('wrong'); }
+            });
+
+            if (correct === cards.length) {
+                if(game.level < 5) { game.level++; loadLevel(); }
+                else { alert("Timeline Fixed! Total Time: " + game.seconds + "s"); location.reload(); }
+            } else {
+                game.tries--; game.seconds += 5;
+                document.getElementById('feedback').innerText = game.tries > 0 ? `Incorrect! ${game.tries} tries left.` : "Loading new set...";
+                if(game.tries <= 0) setTimeout(loadLevel, 1500);
+            }
+        }
+
+        function startTimer() {
+            game.isRunning = true;
+            setInterval(() => { if(isRunning) { game.seconds++; 
+                let m = Math.floor(game.seconds/60).toString().padStart(2,'0');
+                let s = (game.seconds%60).toString().padStart(2,'0');
+                document.getElementById('timer').innerText = `${m}:${s}`;
+            }}, 1000);
+        }
+    </script>
+</body>
+</html>

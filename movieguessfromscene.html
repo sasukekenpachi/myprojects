@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineGuess - 10 Levels (Fixed Scoring)</title>
+    <style>
+        :root {
+            --primary: #e50914;
+            --bg: #0f0f0f;
+            --card: #1a1a1a;
+            --text: #ffffff;
+            --accent: #4CAF50;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .game-container {
+            width: 95%;
+            max-width: 800px;
+            background: var(--card);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            text-align: center;
+        }
+
+        .category-selector {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .cat-btn {
+            background: #333;
+            color: #bbb;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: 0.3s;
+        }
+
+        .cat-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 0 10px rgba(229, 9, 20, 0.5);
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-bottom: 1px solid #333;
+            padding-bottom: 15px;
+        }
+
+        .stat-box span { color: var(--primary); font-size: 1.2rem; font-weight: bold; }
+        #score.negative { color: #ff4444; }
+
+        #image-frame {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            border: 1px solid #333;
+        }
+
+        #movie-still {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #hint-box {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            color: #ccc;
+            border-left: 4px solid var(--primary);
+            text-align: left;
+            min-height: 60px;
+        }
+
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+
+        button.option {
+            background: #2a2a2a;
+            color: white;
+            border: 2px solid #3a3a3a;
+            padding: 15px;
+            font-size: 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button.option:hover:not(:disabled) {
+            border-color: var(--primary);
+            background: #333;
+        }
+
+        button.option.correct { background: var(--accent) !important; border-color: var(--accent); }
+        button.option.wrong { background: var(--primary) !important; border-color: var(--primary); }
+
+        @media (max-width: 500px) {
+            .options-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <div class="category-selector">
+            <button class="cat-btn active" onclick="setCategory('hollywood', this)">Hollywood</button>
+            <button class="cat-btn" onclick="setCategory('bollywood', this)">Bollywood</button>
+            <button class="cat-btn" onclick="setCategory('anime', this)">Anime</button>
+            <button class="cat-btn" onclick="setCategory('korean', this)">Korean</button>
+        </div>
+
+        <header>
+            <div class="stat-box">Level <span id="level">1</span>/10</div>
+            <div class="stat-box">🕒 <span id="timer">30</span>s</div>
+            <div class="stat-box">Score: <span id="score">0</span></div>
+        </header>
+
+        <div id="image-frame">
+            <img id="movie-still" src="" alt="Movie Scene">
+        </div>
+
+        <div id="hint-box">Loading clue...</div>
+
+        <div class="options-grid" id="options-container"></div>
+    </div>
+
+    <script>
+        const API_KEY = 'cb5d24ec84fde23c28d5627f9fda316a'; 
+        const BASE_URL = 'https://api.themoviedb.org/3';
+        const IMG_URL = 'https://image.tmdb.org/t/p/w1280';
+
+        let currentMovie = null;
+        let gameScore = 0; 
+        let level = 1;
+        let timeLeft = 30;
+        let timerInterval;
+        let canGuess = false; // Starts false until image loads
+        let currentCategory = 'hollywood';
+        let usedMovieIds = [];
+
+        const configs = {
+            hollywood: { lang: 'en', keywords: '' },
+            bollywood: { lang: 'hi', keywords: '' },
+            anime: { lang: 'ja', keywords: '210024|230810' },
+            korean: { lang: 'ko', keywords: '' }
+        };
+
+        const movieImg = document.getElementById('movie-still');
+        const optionsContainer = document.getElementById('options-container');
+        const hintBox = document.getElementById('hint-box');
+        const scoreDisplay = document.getElementById('score');
+
+        async function setCategory(cat, btn) {
+            if (currentCategory === cat) return;
+            currentCategory = cat;
+            document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            resetGame();
+        }
+
+        function cleanHint(text, title) {
+            if (!text) return "No description available.";
+            const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(escapedTitle, 'gi');
+            let cleaned = text.replace(regex, "[REDACTED]");
+            
+            // Catch smaller words in title to avoid revealing hints
+            const titleWords = title.split(' ').filter(w => w.length >= 2);
+            titleWords.forEach(word => {
+                const wordRegex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+                cleaned = cleaned.replace(wordRegex, "____");
+            });
+            return cleaned.length > 180 ? cleaned.substring(0, 180) + "..." : cleaned;
+        }
+
+        async function initRound() {
+            canGuess = false;
+            optionsContainer.innerHTML = "";
+            hintBox.innerText = "Scanning scene...";
+            clearInterval(timerInterval);
+            
+            try {
+                const config = configs[currentCategory];
+                const page = Math.floor(Math.random() * 5) + 1;
+                
+                let url = `${BASE_URL}/discover/movie?api_key=${API_KEY}&page=${page}&with_original_language=${config.lang}&sort_by=popularity.desc`;
+                if (config.keywords) url += `&with_keywords=${config.keywords}`;
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                let validMovies = data.results.filter(m => m.backdrop_path && m.overview && !usedMovieIds.includes(m.id));
+                if (validMovies.length === 0) validMovies = data.results.filter(m => m.backdrop_path);
+
+                currentMovie = validMovies[Math.floor(Math.random() * validMovies.length)];
+                usedMovieIds.push(currentMovie.id); 
+                
+                const decoys = data.results
+                    .filter(m => m.id !== currentMovie.id)
+                    .sort(() => 0.5 - Math.random())
+                    .slice(0, 3);
+                
+                const allChoices = [...decoys, currentMovie].sort(() => 0.5 - Math.random());
+                
+                // Set the image and wait for it to load before starting timer
+                movieImg.src = `${IMG_URL}${currentMovie.backdrop_path}`;
+                movieImg.onload = () => {
+                    canGuess = true;
+                    startTimer();
+                };
+
+                hintBox.innerHTML = `<strong>Clue:</strong> ${cleanHint(currentMovie.overview, currentMovie.title)}`;
+                
+                optionsContainer.innerHTML = "";
+                allChoices.forEach(movie => {
+                    const btn = document.createElement('button');
+                    btn.className = 'option';
+                    btn.innerText = movie.title;
+                    btn.onclick = () => handleGuess(movie.id, btn);
+                    optionsContainer.appendChild(btn);
+                });
+
+            } catch (error) {
+                hintBox.innerText = "Error loading. Check API Key.";
+            }
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timeLeft = 30;
+            document.getElementById('timer').innerText = timeLeft;
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                document.getElementById('timer').innerText = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    applyScoreUpdate(-5); // Logic: -5 for timeout
+                    revealCorrect();
+                    setTimeout(nextLevel, 2000);
+                }
+            }, 1000);
+        }
+
+        function handleGuess(selectedId, btnElement) {
+            if (!canGuess) return;
+            canGuess = false;
+            clearInterval(timerInterval);
+
+            if (selectedId === currentMovie.id) {
+                btnElement.classList.add('correct');
+                applyScoreUpdate(20); // Logic: +20 for correct
+            } else {
+                btnElement.classList.add('wrong');
+                applyScoreUpdate(-10); // Logic: -10 for wrong
+                revealCorrect();
+            }
+            setTimeout(nextLevel, 2000);
+        }
+
+        function applyScoreUpdate(amount) {
+            gameScore = gameScore + amount;
+            scoreDisplay.innerText = gameScore;
+            
+            if (gameScore < 0) {
+                scoreDisplay.classList.add('negative');
+            } else {
+                scoreDisplay.classList.remove('negative');
+            }
+        }
+
+        function revealCorrect() {
+            document.querySelectorAll('.option').forEach(btn => {
+                if (btn.innerText === currentMovie.title) btn.classList.add('correct');
+            });
+        }
+
+        function nextLevel() {
+            if (level >= 10) {
+                alert(`Game Over! Final Score: ${gameScore}`);
+                resetGame();
+            } else {
+                level++;
+                document.getElementById('level').innerText = level;
+                initRound();
+            }
+        }
+
+        function resetGame() {
+            level = 1;
+            gameScore = 0;
+            usedMovieIds = [];
+            scoreDisplay.innerText = "0";
+            scoreDisplay.classList.remove('negative');
+            document.getElementById('level').innerText = "1";
+            initRound();
+        }
+
+        initRound();
+    </script>
+</body>
+</html>
