@@ -99,10 +99,9 @@
             <button id="submit-btn" onclick="checkOrder()">SUBMIT ORDER</button>
         </div>
     </div>
-
     <script>
         const API_KEY = 'cb5d24ec84fde23c28d5627f9fda316a';
-        let game = { lang: '', label: '', level: 1, seconds: 0, isRunning: false, seen: new Set(), tries: 3 };
+        let game = { lang: '', label: '', level: 1, seconds: 60, isRunning: false, seen: new Set(), tries: 3, score: 0 };
 
         function start(lang, label) {
             game.lang = lang; game.label = label;
@@ -115,6 +114,7 @@
             const listEl = document.getElementById('movie-list');
             listEl.innerHTML = "<p style='text-align:center; padding-top:50px;'>Fetching Movies...</p>";
             game.tries = 3;
+            game.seconds = 60; 
             let movies = [];
 
             try {
@@ -150,12 +150,11 @@
                 listEl.appendChild(li);
             });
 
-            // MOBILE-FIXED SORTABLE CONFIG
             Sortable.create(listEl, { 
                 animation: 250, 
-                delay: 150, // USER MUST HOLD FOR 0.15s TO DRAG (Crucial for mobile)
+                delay: 150, 
                 delayOnTouchOnly: true,
-                touchStartThreshold: 5, // Prevents drag if finger just wiggles slightly
+                touchStartThreshold: 5, 
                 onStart: function() {
                     document.querySelectorAll('.movie-card').forEach(c => c.classList.remove('correct', 'wrong'));
                     document.getElementById('feedback').innerText = "";
@@ -164,36 +163,78 @@
                     document.querySelectorAll('.rank-number').forEach((n, i) => n.innerText = i + 1);
                 }
             });
-            document.getElementById('level-indicator').innerText = `${game.label} - LEVEL ${game.level}`;
+            document.getElementById('level-indicator').innerText = `${game.label} - LEVEL ${game.level} | SCORE: ${game.score}`;
         }
 
         function checkOrder() {
             const cards = Array.from(document.getElementById('movie-list').children);
-            const sorted = [...cards].map(c => c.dataset.date).sort();
-            let correct = 0;
+            const sorted = [...cards].map(c => c.dataset.date).sort((a, b) => new Date(a) - new Date(b));
+            let correctCount = 0;
+            
             cards.forEach((c, i) => {
-                if (c.dataset.date === sorted[i]) { c.classList.add('correct'); correct++; }
-                else { c.classList.add('wrong'); }
+                if (c.dataset.date === sorted[i]) { 
+                    c.classList.add('correct'); 
+                    correctCount++; 
+                } else { 
+                    c.classList.add('wrong'); 
+                }
             });
 
-            if (correct === cards.length) {
-                if(game.level < 5) { game.level++; loadLevel(); }
-                else { alert("Timeline Fixed! Total Time: " + game.seconds + "s"); location.reload(); }
+            if (correctCount === cards.length) {
+                // SUCCESS CONDITION
+                if (game.seconds > 0) {
+                    game.score += 100;
+                    document.getElementById('feedback').innerText = "Perfect & On Time! +100 Points";
+                } else {
+                    game.score -= 50;
+                    document.getElementById('feedback').innerText = "Correct, but out of time! -50 Points";
+                }
+
+                // Check for Game Over (Negative Score)
+                if (game.score < 0) {
+                    alert("Game Over! Your score fell below zero.");
+                    location.reload();
+                    return;
+                }
+
+                setTimeout(() => {
+                    if(game.level < 5) { 
+                        game.level++; 
+                        loadLevel(); 
+                    } else { 
+                        alert("Timeline Fixed! Final Score: " + game.score); 
+                        location.reload(); 
+                    }
+                }, 1200);
+
             } else {
-                game.tries--; game.seconds += 5;
-                document.getElementById('feedback').innerText = game.tries > 0 ? `Incorrect! ${game.tries} tries left.` : "Loading new set...";
+                // FAILURE CONDITION
+                game.tries--;
+                document.getElementById('feedback').innerText = game.tries > 0 ? `Incorrect! ${game.tries} tries left.` : "Out of tries! Loading new set...";
                 if(game.tries <= 0) setTimeout(loadLevel, 1500);
             }
         }
 
         function startTimer() {
             game.isRunning = true;
-            setInterval(() => { if(isRunning) { game.seconds++; 
-                let m = Math.floor(game.seconds/60).toString().padStart(2,'0');
-                let s = (game.seconds%60).toString().padStart(2,'0');
-                document.getElementById('timer').innerText = `${m}:${s}`;
-            }}, 1000);
+            setInterval(() => { 
+                if(game.isRunning) { 
+                    game.seconds--; 
+                    
+                    let displaySec = Math.max(0, game.seconds);
+                    let m = Math.floor(displaySec/60).toString().padStart(2,'0');
+                    let s = (displaySec%60).toString().padStart(2,'0');
+                    document.getElementById('timer').innerText = `${m}:${s}`;
+                    
+                    if (game.seconds <= 10) {
+                        document.getElementById('timer').style.color = '#ef4444';
+                    } else {
+                        document.getElementById('timer').style.color = '#fff';
+                    }
+                }
+            }, 1000);
         }
     </script>
+  
 </body>
 </html>
